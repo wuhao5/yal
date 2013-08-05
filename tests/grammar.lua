@@ -1,7 +1,12 @@
 local parser = require "../lang.grammar"
 local parse = parser.parse
 
-print(parse([[-0.8e-1  ]]))
+print(parse([===[
+#
+var a , b , c = -1.9
+val a , b , c = -1.9
+--[=[0.8e-1 ]=] 
+]===]))
 --[====[
 -- comments
 
