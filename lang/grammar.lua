@@ -23,7 +23,7 @@ local stringLiteral
 local keywords = {}
 local function K(key)
 	if not keywords[key] then 
-		keywords[key] = P(key) + -charnum
+		keywords[key] = P(key) * (-charnum)
 	end
 	return keywords[key] 
 end
@@ -47,27 +47,39 @@ local mt = {
 
 local tonumber = tonumber
 local build_grammar = function()
+	local W = function(p) return Space0 * p; end
 	return P {
 		Block,
 
-		Space = (space + Comment) ^ 0,
-		Separator = (separator + Comment) ^ 0,
+		Space0 = (space + Comment) ^ 0,
+		Space = (space + Comment) ^ 1,
+		Separator1 = (separator + Comment),
+		Separator = Space0 * P";"^-1,
 		Comment = P"--" * longstring + (P"--" * (-("[" * P"="^0 *"["))) * (1 - P"\n") ^ 0 * (P("\n")-1)^-1,
 		NumHex = P"0x" * R("09", "af", "AF")^1,
 		NumOct = P"0" * R("17") * R("07")^0,
 		NumDec = R("19") * _09^0,
-		NumFloat = ((NumDec + P"0") * P"." * _09^0 + (P"." * _09^1)) * (S"eE" * P"-"^-1 * NumDec) ^-1,
-		Number = P"-"^-1 * Space * (NumHex + NumOct + NumFloat + NumDec) * P(E_Num) * -charset,
+		NumFloat = ((P"0" + NumDec) * P"." * _09^0 + (P"." * _09^1)) * (S"eE" * P"-"^-1 * NumDec) ^-1,
+		Number = P"-"^-1 * W(NumHex + NumOct + NumFloat + NumDec),
 
-		Expr = Number,
+		RangeGen = Number * Space * "to" * Space * Number * (Space * "by" * Space * Number)^-1,
+		ArgList = ExprList,
+		FuncCall = Id * ( (W"(" * W(ArgList) * W")")  + (Space * ArgList) ), 
+		Expr = ("(" * W(Expr) * W")") + RangeGen + Number + FuncCall + Id,
+		Case = K"case" * Space * Expr * W"{" * (Space0 * CaseMatch)^0 * W"}",
+		CaseMatch = ExprList * W"->" * W(Statement), 
+		For = K"for" * W"(" * Space0 * IdList * W"<-" * Space0 * ExprList * W")" * W(Statement),
+		While = K"while" * W"(" * W(ExprList) * W")" * W(Statement),
+		TryCatch = K"try" * W(Statement) * W(K"catch") * W(Statement),
 
 		Id = charset * charnum^0, -- -keywords
-		IdList = Id * (Space * ',' * Space * Id)^0,
-		Decl = (P'val' + P'var') * Space * IdList * (Space * '=' * Space * ExprList)^-1,
-		ExprList = Expr * (Space * ',' * Expr)^0,
+		IdList = Id * (Space0 * ',' * Space0 * Id)^0,
+		ExprList = Expr * (W',' * W(Expr))^0,
+		Decl = (K'val' + K'var') * Space * IdList * (W'=' * W(ExprList))^-1,
 
-		Statement = Decl + ExprList,
-		Block = shebang^-1 * Statement * (Separator * Statement)^0 * Separator-- Number/tonumber * space
+		SimpleStatement = Decl + For + While + Case + ExprList + ";", -- FIXME: ;; => empty clause
+		Statement = (SimpleStatement  + ("{" * (Separator* Statement)^0 * Separator* "}")) * Separator,
+		Block = shebang^-1 * Statement * (Separator * Statement)^0 * Separator * Cp() * P(1)^0-- Number/tonumber * space
 	}
 end
 

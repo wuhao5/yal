@@ -2,14 +2,39 @@ local parser = require "../lang.grammar"
 local parse = parser.parse
 
 print(parse([===[
-#
 var a , b , c = -1.9
-val a , b , c = -1.9
---[=[0.8e-1 ]=] 
+val a , b , c = -1.9;
+for ( a, b <- 1.9 to 2 by 0.1 ) ;
+
+---[[
+case a {
+	b -> 1
+	c -> 1
+	d -> {1;1;1}
+}
+--]]
+
+while ( a )
+	t;
+
+while ( a ){
+	(((a)))
+	a 1, 2,2
+}
 ]===]))
+
+print(parse[==[
+try{
+ for ( a <- 1 to 2 ) {}
+ }
+catch{
+}
+]==])
+
 --[====[
 -- comments
 
+--[=[0.8e-1 ]] 
 --[[
 	--
 ]]
