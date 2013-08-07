@@ -1,7 +1,7 @@
 local parser = require "../lang.grammar"
 local parse = parser.parse
 
-print(parse([===[
+print(parse[===[
 var a , b , c = -1.9
 val a , b , c = -1.9;
 for ( a, b <- 1.9 to 2 by 0.1 ) ;
@@ -21,9 +21,18 @@ while ( a ){
 	(((a)))
 	a 1, 2,2
 }
-]===]))
+]===])
 
 print(parse[==[
+(a[1] b) d c;
+a ^ b ^ c + f1 b + ar1.k + ar2:p * f2 c,d,e * 100
+]==])
+
+print(parse[==[
+(a[1]);
+9+(9,9=9=9)-(a c,d,d)
+--(x[a 1] 10)
+x, y = (x0, y0) + (x1, y1)
 try{
  for ( a <- 1 to 2 ) {}
  }

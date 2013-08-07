@@ -62,10 +62,33 @@ local build_grammar = function()
 		NumFloat = ((P"0" + NumDec) * P"." * _09^0 + (P"." * _09^1)) * (S"eE" * P"-"^-1 * NumDec) ^-1,
 		Number = P"-"^-1 * W(NumHex + NumOct + NumFloat + NumDec),
 
+		UnOp = K"not" + "#" + "-",
+		BinOp = P"=" + "+" + "-" + "*" + "/" + "%" + K"and" + K"or" + "..",
+		RelOp = P"<=" + P">=" + P"<" + P">" + P"~=" + P"==",
+		AssignOp = P"=" + P"-=" + P"+=" + P"*=" + P"/=" + P"%=",
 		RangeGen = Number * Space * "to" * Space * Number * (Space * "by" * Space * Number)^-1,
-		ArgList = ExprList,
-		FuncCall = Id * ( (W"(" * W(ArgList) * W")")  + (Space * ArgList) ), 
-		Expr = ("(" * W(Expr) * W")") + RangeGen + Number + FuncCall + Id,
+		--ArgList = Expr,
+		--FuncCall = Id * ( (W"(" * W(ArgList) * W")")  + (Space * ArgList) ), 
+		--Expr = UnOp * W(Value) + Value * (W(BinOp) * W(Value))^0,
+		Expr = AssignExp,
+
+		AssignExp = ListExp * (W(AssignOp) * W(AssignExp)) ^ 0, -- right associative
+		ListExp = OrExp * (W"," * W(ListExp)) ^ 0,
+		OrExp = AndExp * (W(K"or") * W(OrExp)) ^ 0,
+		AndExp = RelExp * (W(K"and") * W(AndExp)) ^ 0,
+		RelExp = ConcatExp * (W(RelOp) * W(RelExp)) ^ 0,
+		ConcatExp = TermExp * (W".." * W(ConcatExp)) ^ 0,
+		TermExp = FactorExp * (W(S"+-") * W(TermExp)) ^ 0,
+		FactorExp = UnaryExp * (W(S"*/%") * W(FactorExp)) ^ 0,
+		UnaryExp = UnOp ^ 0 * W(ExpoExp),
+		ExpoExp = W(PostExp) * (W"^" * W(ExpoExp)) ^ 0,
+		PostExp = Value * (W(IndexPostfix) + CallPostfix) ^ 0,
+		IndexPostfix = '[' * W(Expr) * ']' + S'.:' * W(Id),
+		CallPostfix = '(' * W(Expr) * W')' + Space * W(Expr), -- fix spacing/break/nl/semi colon
+		Value = RangeGen + Number + Id + ("(" * W(Expr) * W")"), -- + Value + W'[' + W(Expr) + W']'
+		--Value = Value * W"(" * W")" + Value * W'[' * W(Expr) * W']' + Value * W(S".:") * Id + W'(' * W(Expr) * W')'
+		SimpleValue = RangeGen + Number + Id + P"(" * W(Expr) * W')',
+
 		Case = K"case" * Space * Expr * W"{" * (Space0 * CaseMatch)^0 * W"}",
 		CaseMatch = ExprList * W"->" * W(Statement), 
 		For = K"for" * W"(" * Space0 * IdList * W"<-" * Space0 * ExprList * W")" * W(Statement),
