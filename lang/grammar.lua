@@ -47,6 +47,7 @@ local mt = {
 
 local tonumber = tonumber
 local build_grammar = function()
+	--lpeg.setmaxstack(10000)
 	local W = function(p) return Space0 * p; end
 	return P {
 		Block,
@@ -61,6 +62,8 @@ local build_grammar = function()
 		NumDec = R("19") * _09^0,
 		NumFloat = ((P"0" + NumDec) * P"." * _09^0 + (P"." * _09^1)) * (S"eE" * P"-"^-1 * NumDec) ^-1,
 		Number = P"-"^-1 * W(NumHex + NumOct + NumFloat + NumDec),
+
+		FuncLit = P"(" * W(IdList^0) * W")" * W"->" * W(Statement);
 
 		UnOp = K"not" + "#" + "-",
 		BinOp = P"=" + "+" + "-" + "*" + "/" + "%" + K"and" + K"or" + "..",
@@ -85,20 +88,20 @@ local build_grammar = function()
 		PostExp = Value * (W(IndexPostfix) + CallPostfix) ^ 0,
 		IndexPostfix = '[' * W(Expr) * ']' + S'.:' * W(Id),
 		CallPostfix = '(' * W(Expr) * W')' + Space * W(Expr), -- fix spacing/break/nl/semi colon
-		Value = RangeGen + Number + Id + ("(" * W(Expr) * W")"), -- + Value + W'[' + W(Expr) + W']'
+		Value = RangeGen + Number + Id + FuncLit + ("(" * W(Expr) * W")"), -- + Value + W'[' + W(Expr) + W']'
 		--Value = Value * W"(" * W")" + Value * W'[' * W(Expr) * W']' + Value * W(S".:") * Id + W'(' * W(Expr) * W')'
-		SimpleValue = RangeGen + Number + Id + P"(" * W(Expr) * W')',
+		--SimpleValue = RangeGen + Number + Id + P"(" * W(Expr) * W')',
 
 		Case = K"case" * Space * Expr * W"{" * (Space0 * CaseMatch)^0 * W"}",
 		CaseMatch = ExprList * W"->" * W(Statement), 
-		For = K"for" * W"(" * Space0 * IdList * W"<-" * Space0 * ExprList * W")" * W(Statement),
+		For = K"for" * W"(" * W(IdList) * W"<-" * Space0 * ExprList * W")" * W(Statement),
 		While = K"while" * W"(" * W(ExprList) * W")" * W(Statement),
 		TryCatch = K"try" * W(Statement) * W(K"catch") * W(Statement),
 
 		Id = charset * charnum^0, -- -keywords
-		IdList = Id * (Space0 * ',' * Space0 * Id)^0,
+		IdList = Id * (W',' * W(Id))^0,
 		ExprList = Expr * (W',' * W(Expr))^0,
-		Decl = (K'val' + K'var') * Space * IdList * (W'=' * W(ExprList))^-1,
+		Decl = (K'val' + K'var') * Space * IdList * (W'=' * W(Expr))^-1,
 
 		SimpleStatement = Decl + For + While + Case + ExprList + ";", -- FIXME: ;; => empty clause
 		Statement = (SimpleStatement  + ("{" * (Separator* Statement)^0 * Separator* "}")) * Separator,

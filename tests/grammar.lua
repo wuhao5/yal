@@ -29,6 +29,11 @@ a ^ b ^ c + f1 b + ar1.k + ar2:p * f2 c,d,e * 100
 ]==])
 
 print(parse[==[
+val a = (x) -> (y) -> (z) -> x*y*z --> local a = function(x) return function(y) return function(z) return x*y*z end end end
+a(x)(y)(z)
+]==])
+
+print(parse[==[
 (a[1]);
 9+(9,9=9=9)-(a c,d,d)
 --(x[a 1] 10)
