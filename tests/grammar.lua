@@ -35,9 +35,33 @@ print(parse[=[
 print(parse"")
 --]]
 
+-- string/literal
+tprint(parse[===[
+"abc"
+"a\n"
+''
+""
+"\""
+[[abc]]
+[==[ acasd""[[]] ]==]
+]===])
+
+-- comprehension
+tprint(parse[===[
+[x,y | x<-1 to 10;y<-1 to x][2]
+[2][2]
+{"x":x}
+{"x":y,}
+{"x":y,"y":100,"z": () -> {90,100}}.z()
+{x:func x | x<-1 to 10}
+{x:[x|x<-1 to x] | x<-1 to 10}
+]===])
+
 -- compound
 tprint(parse[===[
-for(i <- 1 to 10)
+--i%2 == 2
+for(i <- 1 to 10 if i%2 == 2 and i%3)
+--
 ;
 ]===])
 

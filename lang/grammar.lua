@@ -17,6 +17,7 @@ local longstring = P {
 	close = "]" * C((P "=")^0) * "]";
 	closeeq = Cmt(V "close" * Cb "init", function (s, i, a, b) return a == b end)
 };
+local _string = P"\"" * (P"\\" * P(1) + (1-P"\""))^0 * P"\""
 
 local booleanLiteral = P"true" + P"false"
 local stringLiteral
@@ -52,8 +53,8 @@ local mt = {
 local tonumber = tonumber
 
 local build_grammar = function()
-	--lpeg.setmaxstack(10000)
-	local W = function(p) return Space0 * p; end
+	lpeg.setmaxstack(10000)
+	--local W = function(p) return Space0 * p; end
 	return P {
 		Block,
 
@@ -61,16 +62,26 @@ local build_grammar = function()
 		SS1 = (space + Comment) ^ 1,
 		SL = (space + Comment + nl) ^ 0,
 		SL1 = (space + Comment + nl) ^ 1,
-		Space0 = (space + Comment) ^ 0,
-		Space = (space + Comment) ^ 1,
+		--Space0 = (space + Comment) ^ 0,
+		--Space = (space + Comment) ^ 1,
 		Separator1 = (separator + Comment),
-		Separator = (Space0 * separator)^1,
+		Separator = (SS * separator)^1,
 		Comment = P"--" * longstring + (P"--" * (-("[" * P"="^0 *"["))) * (1 - P"\n") ^ 0 * (P("\n")-1)^-1,
 		NumHex = P"0x" * R("09", "af", "AF")^1,
 		NumOct = P"0" * R("17") * R("07")^0,
 		NumDec = R("19") * _09^0,
 		NumFloat = ((P"0" + NumDec) * P"." * _09^0 + (P"." * _09^1)) * (S"eE" * P"-"^-1 * NumDec) ^-1,
 		Number = P"-"^-1 * SS * (NumHex + NumOct + NumFloat + NumDec),
+		String = P"\'" * (P"\\" * P(1) + (1-P"'"))^0 * P"\'" + P'"' * (P"\\" * P(1) + (1-P'"'))^0 * P'"' + longstring,
+
+		Guard = K"if" * SL * OrExp,
+		Generator = IdList * SL * "<-" * SL * Expr * (SS * Guard)^-1,
+
+		TableField = (String + P"[" * SL * Expr * SL * "]") * SL * ":" * SL * OrExp,	-- partial lua style, "field" : value, ["field"] : value
+		TableLit = P"{" * SL * (TableField * SL * "," * SL)^0 * TableField^-1 * SL * "}",
+
+		ListComprehension = P"[" * SL * ListExp * SL * (P"|" * SL * Generator * (SL * ';' * SL * Generator)^0 * SL)^-1 * ']',  -- [x,y | x<-1 to 10; y<-1 to x]
+		TableComprehension = P"{" * SL * Id * SL * ":" * SL * OrExp * SL * P"|" * SL * Generator * (SL * ';' * SL * Generator)^0 * SL * '}',
 
 		FuncLit = P"(" * SL * (IdList^0) * SL * ")" * SL * "->" * SL * Statement;
 
@@ -96,26 +107,25 @@ local build_grammar = function()
 		ExpoExp = PostExp * (SS * "^" * SL * ExpoExp) ^ 0,
 		PostExp = Value * (SS * IndexPostfix + CallPostfix) ^ 0,
 		IndexPostfix = '[' * SL * Expr * SL * ']' + S'.:' * SL * Id,
-		CallPostfix = SS * '(' * SL * Expr * SL * ')' + SS1 * Expr,
-		Value = RangeGen + Number + Id + FuncLit + ("(" * SL * Expr * SL * ")"), -- + Value + W'[' + W(Expr) + W']'
+		CallPostfix = SS * '(' * SL * Expr^-1 * SL * ')' + SS1 * Expr,
+		Value = String + RangeGen + Number + Id + FuncLit + ListComprehension + TableComprehension + TableLit + ("\"") + ("(" * SL * Expr * SL * ")"),
 		--Value = Value * W"(" * W")" + Value * W'[' * W(Expr) * W']' + Value * W(S".:") * Id + W'(' * W(Expr) * W')'
 		--SimpleValue = RangeGen + Number + Id + P"(" * W(Expr) * W')',
 
 		Case = K"case" * SL1 * Expr * SL * "{" * SL * (CaseMatch * SL)^0 * "}",
 		CaseMatch = Expr * SL * "->" * SL * Statement, 
-		For = K"for" * SL * "(" * SL * IdList * SL * "<-" * SL * Expr * SL * ")" * SL * Statement,
+		For = K"for" * SL * "(" * SL * Generator * SL * ")" * SL * Statement,
 		While = K"while" * SL * "(" * SL * Expr * SL * ")" * SL * Statement,
 		TryCatch = K"try" * (#P"{"+SL1) * Statement * SL * K"catch" * (#P"{" + SL1) * Statement,
 
-		IdList = Id * (W',' * W(Id))^0,
-		ExprList = Expr * (W',' * W(Expr))^0,
+		IdList = Id * (SS * ',' * SS * Id)^0,
 		Decl = (K'val' + K'var') * SL1 * IdList * SL * ('=' * SL * Expr)^-1,
 
 		SimpleStatement = Decl + For + While + Case + TryCatch + Expr, 
 		CompoundStatement = P"{" * SL * (SS * Statement * Separator)^0 * SS * Statement^-1 * SS * "}",
 		Statement = Separator / "empty" + SimpleStatement / "simple" + CompoundStatement /"compound",
 		--Statement1 = SimpleStatement / "simple" + CompoundStatement /"compound",
-		Block = shebang^-1 * SS * Ct(( Statement * (Separator/"sep") * (SS/"ss1"))^0 * (SS/"ss2") * Statement^-1 * (SS/"ss3") * Cp()) * P(1)^0, -- Number/tonumber * space
+		Block = shebang^-1 * SL * Ct(( Statement * Separator * SS)^0 * SS * Statement^-1 * SS * Cp()) * P(1)^0, -- Number/tonumber * space
 
 		-- at this point, it should collect all keywords
 		Id = charset * charnum^0 - keywords
