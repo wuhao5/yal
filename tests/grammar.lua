@@ -63,9 +63,11 @@ tprint(parse[===[
 true
 if (false) a else if (true) b; 
 
---for(i <- 1 to 10 if i%2 == 2 and i%3)
---;
+for(i <- 1 to 10 if i%2 == 2 and i%3) 
+	;
+	
 
+a;
 ]===]) --FIXME: for loop
 
 tprint(parse[===[

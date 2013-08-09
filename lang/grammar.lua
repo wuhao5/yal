@@ -126,9 +126,10 @@ local build_grammar = function()
 
 		SimpleStatement = Decl + For + While + Case + TryCatch + IfElse + Expr, 
 		CompoundStatement = P"{" * SL * (SS * Statement * Separator)^0 * SS * Statement^-1 * SS * "}",
-		Statement = Separator / "empty" + SimpleStatement / "simple" + CompoundStatement /"compound",
+		Empty = SS * separator * SS,
+		Statement = Empty / "empty" + SimpleStatement / "simple" + CompoundStatement /"compound",
 		--Statement1 = SimpleStatement / "simple" + CompoundStatement /"compound",
-		Block = shebang^-1 * SL * Ct(( Statement * Separator * SS)^0 * SS * Statement^-1 * SS * Cp()) * P(1)^0, -- Number/tonumber * space
+		Block = shebang^-1 * SL * Ct(( Statement * Separator * SS)^0 * SS * (Statement^-1/"last") * SS * Cp()) * P(1)^0, -- Number/tonumber * space
 
 		-- at this point, it should collect all keywords
 		Id = charset * charnum^0 - keywords
