@@ -1,22 +1,24 @@
 local parser = require "../lang.grammar"
 local parse = parser.parse
 
-function tprint (tbl, indent)
+function tprint (tbl,_, indent)
 	if not indent then indent = 0 end
 	if type(tbl) == "table" then
 		for k, v in pairs(tbl) do
 			formatting = string.rep("  ", indent) .. k .. ": "
 			io.write(formatting)
-			tprint(v, indent+1)
+			tprint(v, _,indent+1)
 		end
 	else
 		print(tbl)
 	end
 end
 
-tprint = function(tbl)
-	print(tbl[#tbl])
+---[[
+tprint = function(tbl, ...)
+	print(tbl[#tbl], ...)
 end
+--]]
 
 -- empty clause
 --[[
@@ -35,6 +37,11 @@ print(parse"")
 
 -- compound
 tprint(parse[===[
+for(i <- 1 to 10)
+;
+]===])
+
+tprint(parse[===[
   {};  
   {}
 
@@ -43,6 +50,7 @@ tprint(parse[===[
   { ; }
   { ; ; }
   {
+	  {}; {;;};
   }   
   {
 	  ;
@@ -73,7 +81,7 @@ while ( a )
 
 while ( a ){
 	(((a)))
-	a 1, 2,2
+	a (1, 2,2)
 }
 ]===])
 
