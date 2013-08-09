@@ -1,14 +1,15 @@
 local lpeg = require "lpeg"
 
 local P, S, R, V = lpeg.P, lpeg.S, lpeg.R, lpeg.V
-local C, Cp, Cg, Cmt, Cb = lpeg.C, lpeg.Cp, lpeg.Cg, lpeg.Cmt, lpeg.Cb
+local C, Cp, Cg, Cmt, Cb, Ct, Cc = lpeg.C, lpeg.Cp, lpeg.Cg, lpeg.Cmt, lpeg.Cb, lpeg.Ct, lpeg.Cc
 
 local _09 = R"09"
-local space = S" \t\n"
+local space = S" \t\r"
+local nl = S"\n"
 local charset = R("az", "AZ") + S"_"
 local charnum = charset + _09
-local separator = S" ;\n"
-local shebang = P "#" * (P(1) - P "\n")^0 * P "\n";
+local separator = S";\n"
+local shebang = P "#" * (P(1) - P "\n")^0 * P "\n"^-1;
 
 local longstring = P { 
 	V "open" * ((P(1) - V "closeeq")^0) * V "close"; 
@@ -46,16 +47,20 @@ local mt = {
 }
 
 local tonumber = tonumber
+
 local build_grammar = function()
 	--lpeg.setmaxstack(10000)
 	local W = function(p) return Space0 * p; end
 	return P {
 		Block,
 
+		SS = (space + Comment) ^ 0,
+		SL = (space + Comment + nl) ^ 0,
+		SL1 = (space + Comment + nl) ^ 1,
 		Space0 = (space + Comment) ^ 0,
 		Space = (space + Comment) ^ 1,
 		Separator1 = (separator + Comment),
-		Separator = Space0 * P";"^-1,
+		Separator = (Space0 * separator)^1,
 		Comment = P"--" * longstring + (P"--" * (-("[" * P"="^0 *"["))) * (1 - P"\n") ^ 0 * (P("\n")-1)^-1,
 		NumHex = P"0x" * R("09", "af", "AF")^1,
 		NumOct = P"0" * R("17") * R("07")^0,
@@ -92,20 +97,21 @@ local build_grammar = function()
 		--Value = Value * W"(" * W")" + Value * W'[' * W(Expr) * W']' + Value * W(S".:") * Id + W'(' * W(Expr) * W')'
 		--SimpleValue = RangeGen + Number + Id + P"(" * W(Expr) * W')',
 
-		Case = K"case" * Space * Expr * W"{" * (Space0 * CaseMatch)^0 * W"}",
-		CaseMatch = ExprList * W"->" * W(Statement), 
-		For = K"for" * W"(" * W(IdList) * W"<-" * Space0 * ExprList * W")" * W(Statement),
-		While = K"while" * W"(" * W(ExprList) * W")" * W(Statement),
-		TryCatch = K"try" * W(Statement) * W(K"catch") * W(Statement),
+		Case = K"case" * SL1 * Expr * SL * "{" * SL * (CaseMatch * SL)^0 * "}",
+		CaseMatch = Expr * SL * "->" * SL * Statement, 
+		For = K"for" * SL * "(" * SL * IdList * SL * "<-" * SL * Expr * SL * ")" * SL * Statement,
+		While = K"while" * SL * "(" * SL * Expr * SL * ")" * SL * Statement,
+		TryCatch = K"try" * (#P"{"+SL1) * Statement * SL * K"catch" * (#P"{" + SL1) * Statement,
 
 		Id = charset * charnum^0, -- -keywords
 		IdList = Id * (W',' * W(Id))^0,
 		ExprList = Expr * (W',' * W(Expr))^0,
-		Decl = (K'val' + K'var') * Space * IdList * (W'=' * W(Expr))^-1,
+		Decl = (K'val' + K'var') * SL1 * IdList * SL * ('=' * SL * Expr)^-1,
 
-		SimpleStatement = Decl + For + While + Case + ExprList + ";", -- FIXME: ;; => empty clause
-		Statement = (SimpleStatement  + ("{" * (Separator* Statement)^0 * Separator* "}")) * Separator,
-		Block = shebang^-1 * Statement * (Separator * Statement)^0 * Separator * Cp() * P(1)^0-- Number/tonumber * space
+		SimpleStatement = Decl + For + While + Case + TryCatch + Expr, -- FIXME: ;; => empty clause
+		CompoundStatement = P"{" * SL * (SS * Statement * Separator)^0 * SS * Statement^-1 * SS * "}",
+		Statement = Separator / "empty" + SimpleStatement / "simple" + CompoundStatement /"compound",
+		Block = shebang^-1 * SS * Ct(( Statement * (Separator/"sep") * (SS/"ss1"))^0 * (SS/"ss2") * Statement^-1 * (SS/"ss3") * Cp()) * P(1)^0-- Number/tonumber * space
 	}
 end
 

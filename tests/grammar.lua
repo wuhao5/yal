@@ -1,10 +1,64 @@
 local parser = require "../lang.grammar"
 local parse = parser.parse
 
+function tprint (tbl, indent)
+	if not indent then indent = 0 end
+	if type(tbl) == "table" then
+		for k, v in pairs(tbl) do
+			formatting = string.rep("  ", indent) .. k .. ": "
+			io.write(formatting)
+			tprint(v, indent+1)
+		end
+	else
+		print(tbl)
+	end
+end
+
+tprint = function(tbl)
+	print(tbl[#tbl])
+end
+
+-- empty clause
+--[[
 print(parse[===[
+;   
+	
+   ]===]
+)
+
+print(parse[===[#]===])
+print(parse[=[
+#
+]=])
+print(parse"")
+--]]
+
+-- compound
+tprint(parse[===[
+  {};  
+  {}
+
+  { };
+  {;}
+  { ; }
+  { ; ; }
+  {
+  }   
+  {
+	  ;
+  }   
+  {}]===])
+
+print"simple"
+tprint(parse[===[
+a;{ a;b
+}
+a
 var a , b , c = -1.9
-val a , b , c = -1.9;
-for ( a, b <- 1.9 to 2 by 0.1 ) ;
+val a , b , c = -1.9
+for( a, b <- 1.9 to 2 by 0.1 ) {
+	a
+}
 
 ---[[
 case a {
@@ -23,17 +77,21 @@ while ( a ){
 }
 ]===])
 
-print(parse[==[
+tprint(parse[==[
 (a[1] b) d c;
 a ^ b ^ c + f1 b + ar1.k + ar2:p * f2 c,d,e * 100
 ]==])
 
-print(parse[==[
+tprint(parse[==[
 val a = (x) -> (y) -> (z) -> x*y*z --> local a = function(x) return function(y) return function(z) return x*y*z end end end
 a(x)(y)(z)
 ]==])
 
-print(parse[==[
+tprint(parse[==[
+try {
+}catch{
+}]==])
+tprint(parse[==[
 (a[1]);
 9+(9,9=9=9)-(a c,d,d)
 --(x[a 1] 10)
