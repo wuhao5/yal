@@ -67,6 +67,8 @@ local build_grammar = function()
 		Separator1 = (separator + Comment),
 		Separator = (SS * separator)^1,
 		Comment = P"--" * longstring + (P"--" * (-("[" * P"="^0 *"["))) * (1 - P"\n") ^ 0 * (P("\n")-1)^-1,
+		Boolean = K"true" + K"false",
+		Nil = K"nil",
 		NumHex = P"0x" * R("09", "af", "AF")^1,
 		NumOct = P"0" * R("17") * R("07")^0,
 		NumDec = R("19") * _09^0,
@@ -108,12 +110,13 @@ local build_grammar = function()
 		PostExp = Value * (SS * IndexPostfix + CallPostfix) ^ 0,
 		IndexPostfix = '[' * SL * Expr * SL * ']' + S'.:' * SL * Id,
 		CallPostfix = SS * '(' * SL * Expr^-1 * SL * ')' + SS1 * Expr,
-		Value = String + RangeGen + Number + Id + FuncLit + ListComprehension + TableComprehension + TableLit + ("\"") + ("(" * SL * Expr * SL * ")"),
+		Value = Boolean + Nil + String + RangeGen + Number + Id + FuncLit + ListComprehension + TableComprehension + TableLit + ("\"") + ("(" * SL * Expr * SL * ")"),
 		--Value = Value * W"(" * W")" + Value * W'[' * W(Expr) * W']' + Value * W(S".:") * Id + W'(' * W(Expr) * W')'
 		--SimpleValue = RangeGen + Number + Id + P"(" * W(Expr) * W')',
 
 		Case = K"case" * SL1 * Expr * SL * "{" * SL * (CaseMatch * SL)^0 * "}",
 		CaseMatch = Expr * SL * "->" * SL * Statement, 
+		IfElse = K"if" * SL * "(" * SL * Expr * SL * ")" * SL * Statement * (SL * K"else" * SL * Statement)^-1,
 		For = K"for" * SL * "(" * SL * Generator * SL * ")" * SL * Statement,
 		While = K"while" * SL * "(" * SL * Expr * SL * ")" * SL * Statement,
 		TryCatch = K"try" * (#P"{"+SL1) * Statement * SL * K"catch" * (#P"{" + SL1) * Statement,
@@ -121,7 +124,7 @@ local build_grammar = function()
 		IdList = Id * (SS * ',' * SS * Id)^0,
 		Decl = (K'val' + K'var') * SL1 * IdList * SL * ('=' * SL * Expr)^-1,
 
-		SimpleStatement = Decl + For + While + Case + TryCatch + Expr, 
+		SimpleStatement = Decl + For + While + Case + TryCatch + IfElse + Expr, 
 		CompoundStatement = P"{" * SL * (SS * Statement * Separator)^0 * SS * Statement^-1 * SS * "}",
 		Statement = Separator / "empty" + SimpleStatement / "simple" + CompoundStatement /"compound",
 		--Statement1 = SimpleStatement / "simple" + CompoundStatement /"compound",
