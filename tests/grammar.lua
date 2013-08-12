@@ -46,12 +46,19 @@ tprint(parse[===[
 [==[ acasd""[[]] ]==]
 ]===])
 
+-- type
+tprint(parse[===[
+val a = (x:int) -> x*2
+for(k:int, v:string <- {k:"test" | k<-1 to 10}) {
+}
+]===])
+
 -- comprehension
 tprint(parse[===[
 [x,y | x<-1 to 10;y<-1 to x][2]
 [2][2]
 {"x":x}
-{"x":y,}
+{"x":y}
 {"x":y,"y":100,"z": () -> {90,100}}.z()
 {x:func x | x<-1 to 10}
 {x:[x|x<-1 to x] | x<-1 to 10}
@@ -61,8 +68,9 @@ tprint(parse[===[
 tprint(parse[===[
 --i%2 == 2
 true
-if (false) a else if (true) b; 
+if (false) a else if (true) b;
 
+"abc": lower()
 for(i <- 1 to 10 if i%2 == 2 and i%3) 
 	;
 	
@@ -95,6 +103,8 @@ var a , b , c = -1.9
 val a , b , c = -1.9
 for( a, b <- 1.9 to 2 by 0.1 ) {
 	a
+	break
+	yield
 }
 
 ---[[
@@ -137,6 +147,18 @@ try{
  for ( a <- 1 to 2 ) {}
  }
 catch{
+}
+]==])
+
+tprint(parse[==[
+class C1 extends C2{
+	val .func1 = (cb:()->int) -> 
+		return cb();
+}
+
+trait T1{
+	val .func1: () -> int;
+	val :func2: (bool) -> string;
 }
 ]==])
 

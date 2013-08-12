@@ -66,6 +66,8 @@ local build_grammar = function()
 		--Space = (space + Comment) ^ 1,
 		Separator1 = (separator + Comment),
 		Separator = (SS * separator)^1,
+
+		-- comment/number/string literal
 		Comment = P"--" * longstring + (P"--" * (-("[" * P"="^0 *"["))) * (1 - P"\n") ^ 0 * (P("\n")-1)^-1,
 		Boolean = K"true" + K"false",
 		Nil = K"nil",
@@ -74,29 +76,28 @@ local build_grammar = function()
 		NumDec = R("19") * _09^0,
 		NumFloat = ((P"0" + NumDec) * P"." * _09^0 + (P"." * _09^1)) * (S"eE" * P"-"^-1 * NumDec) ^-1,
 		Number = P"-"^-1 * SS * (NumHex + NumOct + NumFloat + NumDec),
-		String = P"\'" * (P"\\" * P(1) + (1-P"'"))^0 * P"\'" + P'"' * (P"\\" * P(1) + (1-P'"'))^0 * P'"' + longstring,
+		String = P"\'" * (P"\\" * P(1) + (1-S"'\n"))^0 * P"\'" + P'"' * (P"\\" * P(1) + (1-S'"\n'))^0 * P'"' + longstring,
 
+		--generator
 		Guard = K"if" * SL * OrExp,
 		Generator = IdList * SL * "<-" * SL * Expr * (SS * Guard)^-1,
 
+		-- other literal and comprehension
 		TableField = (String + P"[" * SL * Expr * SL * "]") * SL * ":" * SL * OrExp,	-- partial lua style, "field" : value, ["field"] : value
 		TableLit = P"{" * SL * (TableField * SL * "," * SL)^0 * TableField^-1 * SL * "}",
-
 		ListComprehension = P"[" * SL * ListExp * SL * (P"|" * SL * Generator * (SL * ';' * SL * Generator)^0 * SL)^-1 * ']',  -- [x,y | x<-1 to 10; y<-1 to x]
 		TableComprehension = P"{" * SL * Id * SL * ":" * SL * OrExp * SL * P"|" * SL * Generator * (SL * ';' * SL * Generator)^0 * SL * '}',
 
-		FuncLit = P"(" * SL * (IdList^0) * SL * ")" * SL * "->" * SL * Statement;
+		FuncLit = P"(" * SL * (IdList * SL)^-1 * ")" * SL * "->" * SL * Statement;
 
 		UnOp = K"not" + "#" + "-",
 		BinOp = P"=" + "+" + "-" + "*" + "/" + "%" + K"and" + K"or" + "..",
 		RelOp = P"<=" + P">=" + P"<" + P">" + P"~=" + P"==",
 		AssignOp = P"=" + P"-=" + P"+=" + P"*=" + P"/=" + P"%=",
 		RangeGen = Number * SS1 * "to" * SS1 * Number * (SS1 * "by" * SS1 * Number)^-1, -- range must be in the same line
-		--ArgList = Expr,
-		--FuncCall = Id * ( (W"(" * W(ArgList) * W")")  + (Space * ArgList) ), 
-		--Expr = UnOp * W(Value) + Value * (W(BinOp) * W(Value))^0,
-		Expr = AssignExp,
 
+		-- expression: assignment, relational, factoring, indexing and invoking
+		Expr = AssignExp,
 		AssignExp = ListExp * (SS * AssignOp * SL * AssignExp) ^ 0, -- right associative
 		ListExp = OrExp * (SS * "," * SL * ListExp) ^ 0,
 		OrExp = AndExp * (SS * K"or" * SL1 * OrExp) ^ 0,
@@ -110,21 +111,30 @@ local build_grammar = function()
 		PostExp = Value * (SS * IndexPostfix + CallPostfix) ^ 0,
 		IndexPostfix = '[' * SL * Expr * SL * ']' + S'.:' * SL * Id,
 		CallPostfix = SS * '(' * SL * Expr^-1 * SL * ')' + SS1 * Expr,
-		Value = Boolean + Nil + String + RangeGen + Number + Id + FuncLit + ListComprehension + TableComprehension + TableLit + ("\"") + ("(" * SL * Expr * SL * ")"),
-		--Value = Value * W"(" * W")" + Value * W'[' * W(Expr) * W']' + Value * W(S".:") * Id + W'(' * W(Expr) * W')'
-		--SimpleValue = RangeGen + Number + Id + P"(" * W(Expr) * W')',
+		Value = Boolean + Nil + String + RangeGen + Number + Id + FuncLit + ListComprehension + TableComprehension + TableLit + ("(" * SL * Expr * SL * ")"),
 
+		-- basic control statement
 		Case = K"case" * SL1 * Expr * SL * "{" * SL * (CaseMatch * SL)^0 * "}",
 		CaseMatch = Expr * SL * "->" * SL * Statement, 
 		IfElse = K"if" * SL * "(" * SL * Expr * SL * ")" * SL * Statement * (SL * K"else" * SL * Statement)^-1,
 		For = K"for" * SL * "(" * SL * Generator * SL * ")" * SL * Statement,
 		While = K"while" * SL * "(" * SL * Expr * SL * ")" * SL * Statement,
 		TryCatch = K"try" * (#P"{"+SL1) * Statement * SL * K"catch" * (#P"{" + SL1) * Statement,
+		Return = (K"yield" + K"return") * (SS * Expr)^-1 + K"break";
 
-		IdList = Id * (SS * ',' * SS * Id)^0,
-		Decl = (K'val' + K'var') * SL1 * IdList * SL * ('=' * SL * Expr)^-1,
+		-- declaration/trait/class
+		Type = K"int" + K"float" + K"string" + K"array" + K"table" + K"bool" + Id,
+		FuncType = "(" * SL * TypeList^-1 * SL * ")" * SL * "->" * SL * Typedef,
+		Trait = "{" * SL * TypeList * SL * "}",
+		Typedef = Type + FuncType + Trait,
+		TypeList = Typedef * (SS * "," * SL * Typedef)^0,
+		IdDecl = (S".:" * SL)^-1 * Id * (SS * ":" * SL * Typedef)^-1,
+		IdList = IdDecl * (SS * ',' * SL * IdDecl)^0, --IdList = Id * (SS * ',' * SS * Id)^0,
+		Class = (K"class" + K"trait") * SL * Id * SL * (K"extends" * SL1 * Id * SL)^0 * CompoundStatement,
 
-		SimpleStatement = Decl + For + While + Case + TryCatch + IfElse + Expr, 
+		Decl = (K'val' + K'var') * SL1 * IdList * SS * ('=' * SL * Expr)^-1,
+
+		SimpleStatement = Decl + For + While + Case + TryCatch + IfElse + Return + Class + Expr, 
 		CompoundStatement = P"{" * SL * (SS * Statement * Separator)^0 * SS * Statement^-1 * SS * "}",
 		Empty = SS * separator * SS,
 		Statement = Empty / "empty" + SimpleStatement / "simple" + CompoundStatement /"compound",
