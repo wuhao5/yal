@@ -150,12 +150,12 @@ local build_grammar = function()
 			FuncLit * Attr("type", "func") + ListComprehension + TableComprehension + TableLit + ("(" * SL * Expr * SL * ")"),
 
 		-- basic control statement
-		Case = K"case" * SL1 * Expr * SL * "{" * SL * (CaseMatch * SL)^0 * "}",
-		CaseMatch = Expr * SL * "->" * SL * statement, 
-		IfElse = K"if" * SL * "(" * SL * Expr * SL * ")" * SL * statement * (SL * K"else" * SL * statement)^-1,
-		For = K"for" * SL * "(" * SL * Generator * SL * ")" * SL * statement,
-		While = K"while" * SL * "(" * SL * Expr * SL * ")" * SL * statement,
-		TryCatch = K"try" * (#P"{"+SL1) * statement * SL * K"catch" * (#P"{" + SL1) * statement,
+		Case = K"case" * SL1 * Cg(Expr, "condition") * SL * "{" * SL * Cg(Ct((CaseMatch * SL)^0), "match") * "}",
+		CaseMatch = Cg(Expr, "case") * SL * "->" * SL * Cg(statement, "action"), 
+		IfElse = K"if" * SL * "(" * SL * Cg(Expr, "condition") * SL * ")" * SL * Cg(statement, "actIfTrue") * (SL * K"else" * SL * Cg(statement, "actIfFalse"))^-1,
+		For = K"for" * SL * "(" * SL * Cg(Generator, "gen") * SL * ")" * SL * Cg(statement, "action"),
+		While = K"while" * SL * "(" * SL * Cg(Expr, "condition") * SL * ")" * SL * Cg(statement, "action"),
+		TryCatch = K"try" * (#P"{"+SL1) * Cg(statement,"try") * SL * K"catch" * (#P"{" + SL1) * Cg(statement, "catch"),
 		Return = Cg(K"yield" + K"return", "type") * (SS * Cg(Expr, "expr"))^-1 + Cg(K"break", "type");
 
 		-- declaration/trait/class
