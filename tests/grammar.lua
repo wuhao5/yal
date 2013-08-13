@@ -1,20 +1,20 @@
 local parser = require "../lang.grammar"
 local parse = parser.parse
 
+
 function tprint (tbl,_, indent)
-	if not indent then indent = 0 end
-	if type(tbl) == "table" then
-		for k, v in pairs(tbl) do
-			formatting = string.rep("  ", indent) .. k .. ": "
-			io.write(formatting)
-			tprint(v, _,indent+1)
+	if not indent then indent = 0; print(_) end
+	for k, v in pairs(tbl) do
+		formatting = string.rep("  ", indent) .. k .. ": "
+		if type(v) == "table" then
+			print(formatting)
+			tprint(v, _, indent+1)
+		else
+			print(formatting .. v)
 		end
-	else
-		print(tbl)
 	end
 end
-
----[[
+--[[
 tprint = function(tbl, ...)
 	print(tbl[#tbl], ...)
 end
@@ -153,13 +153,18 @@ catch{
 tprint(parse[==[
 class C1 extends C2{
 	val .func1 = (cb:()->int) -> 
-		return cb();
+	{
+		var a = 10
+		return cb(a);
+	}
 }
 
 trait T1{
 	val .func1: () -> int;
-	val :func2: (bool) -> string;
+	val :func2: (a:bool) -> string;
 }
+
+return a = 10.1
 ]==])
 
 --[====[
