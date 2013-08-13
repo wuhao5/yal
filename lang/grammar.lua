@@ -1,7 +1,7 @@
 local lpeg = require "lpeg"
 
 local P, S, R, V = lpeg.P, lpeg.S, lpeg.R, lpeg.V
-local C, Cp, Cg, Cmt, Cb, Ct, Cc = lpeg.C, lpeg.Cp, lpeg.Cg, lpeg.Cmt, lpeg.Cb, lpeg.Ct, lpeg.Cc
+local C, Cp, Cg, Cmt, Cb, Ct, Cc, Cf = lpeg.C, lpeg.Cp, lpeg.Cg, lpeg.Cmt, lpeg.Cb, lpeg.Ct, lpeg.Cc, lpeg.Cf
 
 local _09 = R"09"
 local space = S" \t\r"
@@ -26,7 +26,7 @@ local _keywords = {}
 local keywords
 local function K(key)
 	if not _keywords[key] then 
-		_keywords[key] = C(P(key) * (-charnum))
+		_keywords[key] = C(P(key)) * (-charnum)
 		if not keywords then keywords = _keywords[key]
 		else keywords = keywords + _keywords[key] end
 	end
@@ -84,6 +84,36 @@ local function mark(name)
 	end
 end
 
+function tprint (tbl,_, indent)
+	if not indent then indent = 0; print(_, tbl) end
+	for k, v in pairs(tbl) do
+		formatting = string.rep("  ", indent) .. k .. ": "
+		if type(v) == "table" then
+			print(formatting)
+			tprint(v, _, indent+1)
+		else
+			print(formatting .. v)
+		end
+	end
+end
+local make_tree = function(left, op, right)
+	--local r = { left = left, op = op, right = right }
+	print("=====", op)
+	tprint(left,"left")
+	tprint(right,"right")
+	local r = { left = left.op and left or left.left, op = op, right = right.op and right or right.left }
+	--[[
+	print("left", left, left.left, left.op, left.right)
+	print("right", right, right.left, right.op, right.right)
+	--]]
+	print("-----", r)
+	return r
+end
+
+local remove_level = function(c)
+	return #c == 1 and c[1] or c
+end
+
 local scope
 local build_grammar = function()
 	--lpeg.setmaxstack(10000)
@@ -125,27 +155,28 @@ local build_grammar = function()
 
 		FuncLit = P"(" * SL * Cg(IdList * SL, "parameter")^-1 * ")" * SL * "->" * SL * Cg(statement, "body");
 
-		unOp = C(K"not" + "#" + "-"),
+		unOp = K"not" + C"#" + C"-",
 		binOp = P"=" + "+" + "-" + "*" + "/" + "%" + K"and" + K"or" + "..",
 		relOp = C(P"<=" + P">=" + P"<" + P">" + P"~=" + P"=="),
 		assignOp = C(P"=" + P"-=" + P"+=" + P"*=" + P"/=" + P"%="),
 		RangeGen = Number * SS1 * "to" * SS1 * Number * (SS1 * "by" * SS1 * Number)^-1, -- range must be in the same line
 
 		-- expression: assignment, relational, factoring, indexing and invoking
-		--Expr = AssignExp,
-		Expr = Cg(ListExp, "left") * Ct(SS * Cg(assignOp, "op") * SL * Cg(Expr,"right"))^ 0, -- right associative
-		ListExp = Cg(OrExp, "left") * Ct(SS * Cg(C",", "op") * SL * Cg(ListExp, "right")) ^ 0,
-		OrExp = Cg(AndExp, "left") * Ct(SS * Cg(K"or", "op") * SL1 * Cg(OrExp, "right")) ^ 0,
-		AndExp = Cg(RelExp, "left") * Ct(SS * Cg(K"and", "op") * SL1 * Cg(AndExp, "right")) ^ 0,
-		RelExp = Cg(ConcatExp, "left") * Ct(SS * Cg(relOp, "op") * SL * Cg(RelExp, "right")) ^ 0,
-		ConcatExp = Cg(TermExp, "left") * Ct(SS * Cg(C"..", "op") * SL * Cg(ConcatExp, "right")) ^ 0,
-		TermExp = Cg(FactorExp, "left") * Ct(SS * Cg(CS"+-", "op") * SL * Cg(TermExp, "right")) ^ 0,
-		FactorExp = Cg(UnaryExp, "left") * Ct(SS * Cg(CS"*/%", "op") * SL *  Cg(FactorExp, "right")) ^ 0,
-		UnaryExp = Cg(Ct((unOp * SS) ^ 0), "op") * Cg(ExpoExp, "left"),	-- Unary stay in the same line
-		ExpoExp = Cg(PostExp, "left") * Ct(SS * Cg(C"^", "op") * SL * Cg(ExpoExp, "right")) ^ 0,
-		PostExp = Cg(value, "left") * Ct(SS * Cg(IndexPostfix,"right") * Attr("op", "index") + Cg(CallPostfix, "right") * Attr("op","call")) ^ 0,
+		ListExp = listExp, OrExp = orExp, Expr = expr, -- table capture for intermediate expressions
+
+		expr = Cf(listExp * Cg(SS * assignOp * SL * V"expr")^ 0, make_tree), -- right associative
+		listExp = Cf(orExp * Cg(SS * C"," * SL * orExp) ^ 0, make_tree),
+		orExp = Cf(andExp * Cg(SS * K"or" * SL1 * andExp) ^ 0, make_tree),
+		andExp = Cf(relExp * Cg(SS * K"and" * SL1 * relExp) ^ 0, make_tree),
+		relExp = Cf(concatExp * Cg(SS * relOp * SL * concatExp) ^ 0, make_tree),
+		concatExp = Cf(termExp * Cg(SS * C".." * SL * termExp) ^ 0, make_tree),
+		termExp = Cf(factorExp * Cg(SS * CS"+-" * SL * factorExp) ^ 0, make_tree),
+		factorExp = Cf(unaryExp * SS * Cg(CS"*/%" * SL * unaryExp * SS) ^ 0, make_tree),
+		unaryExp = Cg(Ct((unOp * SS) ^ 0)) * expoExp / function(op, left) return {op=#op>0 and op or nil, left=left} end,	-- Unary stay in the same line
+		expoExp = Cf(postExp * Cg(SS * C"^" * SL * postExp) ^ 0, make_tree),
+		postExp = Cf(value * (SS * Cc"index" * IndexPostfix + Cc"call" * CallPostfix) ^ 0, make_tree),
 		IndexPostfix = '[' * SL * Cg(Expr, "expr") * SL * ']' * Attr("op", ".") + Cg(CS'.:', "op") * SL * idName,
-		CallPostfix = SS * '(' * SL * Expr^-1 * SL * ')' + SS1 * Expr,
+		CallPostfix = SS * '(' * SL * Expr^-1 * SL * ')', -- + SS1 * Expr,
 		value = Boolean + Nil + String + RangeGen + Number + IdValue + 
 			FuncLit * Attr("type", "func") + ListComprehension + TableComprehension + TableLit + ("(" * SL * Expr * SL * ")"),
 
@@ -175,11 +206,12 @@ local build_grammar = function()
 		SimpleStatement = Cg(Decl, "stat") * Attr("type", "decl") + 
 			Cg(For, "stat") * Attr("type", "for") + Cg(While, "stat") * Attr("type","while") + Cg(Case, "stat") * Attr("type", "case") + 
 			Cg(TryCatch, "stat") * Attr("type", "try") + Cg(IfElse, "stat") * Attr("type", "if") + Cg(Return, "stat") * Attr("type", "return") + 
-			Cg(Class, "stat") * Attr("type", "class") + Cg(Expr, "stat") * Attr("type", "expr"), 
+			Cg(Class, "stat") * Attr("type", "class") + Cg(Expr/remove_level, "stat") * Attr("type", "expr"), 
 		CompoundStatement = P"{" * SL * (SS * statement * Separator)^0 * SS * statement^-1 * SS * "}",
 		empty = SS * separator * SS,
 		statement = empty + SimpleStatement + CompoundStatement,
 		--Statement1 = SimpleStatement / "simple" + CompoundStatement /"compound",
+		--Block = shebang^-1 * SL * Ct(( statement * Separator * SS)^0 * SS * (statement^-1) * SS * Cp()) * P(1)^0, -- Number/tonumber * space
 		Block = shebang^-1 * SL * Ct(( statement * Separator * SS)^0 * SS * (statement^-1) * SS * Cp()) * P(1)^0, -- Number/tonumber * space
 
 		-- at this point, it should collect all keywords
