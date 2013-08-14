@@ -26,12 +26,14 @@ local _keywords = {}
 local keywords
 local function K(key)
 	if not _keywords[key] then 
-		_keywords[key] = C(P(key)) * (-charnum)
+		_keywords[key] = P(key) * (-charnum)
 		if not keywords then keywords = _keywords[key]
 		else keywords = keywords + _keywords[key] end
 	end
 	return _keywords[key] 
 end
+
+local function CK(key) return C(K(key)) end
 
 local function CS(s) return C(S(s)) end
 
@@ -83,9 +85,8 @@ local function mark(name)
 		return {name, ...}
 	end
 end
-
 function tprint (tbl,_, indent)
-	if not indent then indent = 0; print(_, tbl) end
+	if not indent then indent = 0; print(_) end
 	for k, v in pairs(tbl) do
 		formatting = string.rep("  ", indent) .. k .. ": "
 		if type(v) == "table" then
@@ -96,18 +97,22 @@ function tprint (tbl,_, indent)
 		end
 	end
 end
+
 local make_tree = function(left, op, right)
-	--local r = { left = left, op = op, right = right }
-	print("=====", op)
-	tprint(left,"left")
-	tprint(right,"right")
-	local r = { left = left.op and left or left.left, op = op, right = right.op and right or right.left }
-	--[[
-	print("left", left, left.left, left.op, left.right)
-	print("right", right, right.left, right.op, right.right)
-	--]]
-	print("-----", r)
-	return r
+	return { left = left.op and left or left.left or left, op = op, right = right.op and right or right.left or right}
+end
+
+local make_list = function(left, right)
+	if #right > 0 then 
+		table.insert(right, 1, left) 
+		return {left = right, op = ","}
+	else
+		return left
+	end
+end
+
+local discard_capture = function(c)
+	return
 end
 
 local remove_level = function(c)
@@ -118,19 +123,19 @@ local scope
 local build_grammar = function()
 	--lpeg.setmaxstack(10000)
 	--local W = function(p) return Space0 * p; end
-	Comment = P"--" * longstring + (P"--" * (-("[" * P"="^0 *"["))) * (1 - P"\n") ^ 0 * (P("\n")-1)^-1
-	SS = (space + Comment) ^ 0
-	SL = (space + Comment + nl) ^ 0
-	Separator = (SS * separator)^1
-	SS1 = (space + Comment) ^ 1
-	SL1 = (space + Comment + nl) ^ 1
-	decimal = R("19") * _09^0
+	local Comment = P"--" * longstring + (P"--" * (-("[" * P"="^0 *"["))) * (1 - P"\n") ^ 0 * (P("\n")-1)^-1
+	local SS = (space + Comment) ^ 0
+	local SL = (space + Comment + nl) ^ 0
+	local Separator = (SS * separator)^1
+	local SS1 = (space + Comment) ^ 1
+	local SL1 = (space + Comment + nl) ^ 1
+	local decimal = R("19") * _09^0
 	return P {
-		Block,
+		Block/remove_level,
 
 		-- comment/number/string literal
-		Boolean = (K"true" + K"false") * Attr("type", "bool"),
-		Nil = K"nil" * Attr("type", "nil"),	
+		Boolean = Cg(CK"true" + CK"false", "value") * Attr("type", "bool"),
+		Nil = Cg(K"nil" + K"true", "value") * Attr("type", "nil"), -- lpeg bug?
 		numHex = Cg(C(P"0x" * R("09", "af", "AF")^1), "value") * Attr("type", "hex"),
 		numOct = Cg(C(P"0" * R("17") * R("07")^0), "value") * Attr("type", "oct"),
 		numDec = Cg(C(decimal), "value") * Attr("type", "dec"),
@@ -140,8 +145,8 @@ local build_grammar = function()
 		IdValue = idName * Attr("type", "id"),
 
 		--generator
-		Guard = K"if" * SL * OrExp,
-		Generator = IdList * SL * "<-" * SL * Expr * (SS * Guard)^-1,
+		guard = K"if" * SL * orExp,
+		Generator = Cg(IdList, "parameter") * SL * "<-" * SL * Cg(expr, "gen") * Cg(SS * guard, "guard")^-1,
 
 		-- other literal and comprehension
 
@@ -153,9 +158,9 @@ local build_grammar = function()
 		-- {k:func(v) | k<-1 to 10}
 		TableComprehension = Cc"tbCmp" * P"{" * SL * idName * SL * ":" * SL * OrExp * SL * P"|" * SL * Generator * (SL * ';' * SL * Generator)^0 * SL * '}',
 
-		FuncLit = P"(" * SL * Cg(IdList * SL, "parameter")^-1 * ")" * SL * "->" * SL * Cg(statement, "body");
+		FuncLit = P"(" * SL * Cg(IdList * SL, "parameter")^-1 * ")" * SL * "->" * SL * Cg(Statement, "body") * Attr("type", "func");
 
-		unOp = K"not" + C"#" + C"-",
+		unOp = CK"not" + C"#" + C"-",
 		binOp = P"=" + "+" + "-" + "*" + "/" + "%" + K"and" + K"or" + "..",
 		relOp = C(P"<=" + P">=" + P"<" + P">" + P"~=" + P"=="),
 		assignOp = C(P"=" + P"-=" + P"+=" + P"*=" + P"/=" + P"%="),
@@ -165,54 +170,56 @@ local build_grammar = function()
 		ListExp = listExp, OrExp = orExp, Expr = expr, -- table capture for intermediate expressions
 
 		expr = Cf(listExp * Cg(SS * assignOp * SL * V"expr")^ 0, make_tree), -- right associative
-		listExp = Cf(orExp * Cg(SS * C"," * SL * orExp) ^ 0, make_tree),
-		orExp = Cf(andExp * Cg(SS * K"or" * SL1 * andExp) ^ 0, make_tree),
-		andExp = Cf(relExp * Cg(SS * K"and" * SL1 * relExp) ^ 0, make_tree),
+		listExp = Cf(orExp * Ct((SS * "," * SL * orExp) ^ 0), make_list),
+		orExp = Cf(andExp * Cg(SS * CK"or" * SL1 * andExp) ^ 0, make_tree),
+		andExp = Cf(relExp * Cg(SS * CK"and" * SL1 * relExp) ^ 0, make_tree),
 		relExp = Cf(concatExp * Cg(SS * relOp * SL * concatExp) ^ 0, make_tree),
 		concatExp = Cf(termExp * Cg(SS * C".." * SL * termExp) ^ 0, make_tree),
 		termExp = Cf(factorExp * Cg(SS * CS"+-" * SL * factorExp) ^ 0, make_tree),
 		factorExp = Cf(unaryExp * SS * Cg(CS"*/%" * SL * unaryExp * SS) ^ 0, make_tree),
-		unaryExp = Cg(Ct((unOp * SS) ^ 0)) * expoExp / function(op, left) return {op=#op>0 and op or nil, left=left} end,	-- Unary stay in the same line
+		unaryExp = Cg(Ct((unOp * SS) ^ 0)) * expoExp / function(op, left) return #op>0 and {op = op, left=left} or left end,	-- Unary stay in the same line
 		expoExp = Cf(postExp * Cg(SS * C"^" * SL * postExp) ^ 0, make_tree),
-		postExp = Cf(value * (SS * Cc"index" * IndexPostfix + Cc"call" * CallPostfix) ^ 0, make_tree),
-		IndexPostfix = '[' * SL * Cg(Expr, "expr") * SL * ']' * Attr("op", ".") + Cg(CS'.:', "op") * SL * idName,
-		CallPostfix = SS * '(' * SL * Expr^-1 * SL * ')', -- + SS1 * Expr,
+		postExp = Cf(value * Cg(SS * Cc"index" * indexPostfix + Cc"call" * callPostfix) ^ 0, make_tree),
+		indexPostfix = '[' * SL * Cg(expr, "expr") * SL * ']' * Attr("op", ".") + Cg(CS'.:', "op") * SL * idName,
+		callPostfix = SS * '(' * SL * expr^-1 * SL * ')' + SS1 * (-S"-+") * expr,
 		value = Boolean + Nil + String + RangeGen + Number + IdValue + 
-			FuncLit * Attr("type", "func") + ListComprehension + TableComprehension + TableLit + ("(" * SL * Expr * SL * ")"),
+			FuncLit + ListComprehension + TableComprehension + TableLit + ("(" * SL * expr * SL * ")"),
 
-		-- basic control statement
-		Case = K"case" * SL1 * Cg(Expr, "condition") * SL * "{" * SL * Cg(Ct((CaseMatch * SL)^0), "match") * "}",
-		CaseMatch = Cg(Expr, "case") * SL * "->" * SL * Cg(statement, "action"), 
-		IfElse = K"if" * SL * "(" * SL * Cg(Expr, "condition") * SL * ")" * SL * Cg(statement, "actIfTrue") * (SL * K"else" * SL * Cg(statement, "actIfFalse"))^-1,
-		For = K"for" * SL * "(" * SL * Cg(Generator, "gen") * SL * ")" * SL * Cg(statement, "action"),
-		While = K"while" * SL * "(" * SL * Cg(Expr, "condition") * SL * ")" * SL * Cg(statement, "action"),
-		TryCatch = K"try" * (#P"{"+SL1) * Cg(statement,"try") * SL * K"catch" * (#P"{" + SL1) * Cg(statement, "catch"),
-		Return = Cg(K"yield" + K"return", "type") * (SS * Cg(Expr, "expr"))^-1 + Cg(K"break", "type");
+		-- basic control Statement
+		Case = K"case" * SL1 * Cg(expr, "condition") * SL * "{" * SL * Cg(Ct((CaseMatch * SL)^0), "match") * "}",
+		CaseMatch = Cg(expr, "case") * SL * "->" * SL * Cg(Statement, "action"), 
+		IfElse = K"if" * SL * "(" * SL * Cg(expr, "condition") * SL * ")" * SL * Cg(Statement, "actIfTrue") * (SL * K"else" * SL * Cg(Statement, "actIfFalse"))^-1,
+		For = K"for" * SL * "(" * SL * Cg(Generator, "gen") * SL * ")" * SL * Cg(Statement, "action"),
+		While = K"while" * SL * "(" * SL * Cg(expr, "condition") * SL * ")" * SL * Cg(Statement, "action"),
+		TryCatch = K"try" * (#P"{"+SL1) * Cg(Statement,"try") * SL * K"catch" * (#P"{" + SL1) * Cg(Statement, "catch"),
+		return_ = Cg(CK"yield" + CK"return", "type") * (SS * Cg(expr, "expr"))^-1 + Cg(CK"break", "type");
 
 		-- declaration/trait/class
-		type_ = K"int" + K"float" + K"string" + K"list" + K"table" + K"bool" + id,
-		FuncType = "(" * SL * Cg(TypeList, "input")^-1 * SL * ")" * SL * "->" * SL * Cg(typedef, "ret") * Attr("type", "func"),
-		Trait = "{" * SL * Cg(TypeList, "list") * SL * "}" * Attr("type", "trait"),
+		type_ = Cg(CK"int" + CK"float" + CK"string" + CK"list" + CK"table" + CK"bool" + id, "value") * Attr("type", "name"),
+		FuncType = "(" * SL * Cg(NamedTypeList, "input")^-1 * SL * ")" * SL * "->" * SL * Cg(TypeList, "ret") * Attr("type", "func"),
+		Trait = "{" * SL * Cg(NamedTypeList, "list") * SL * "}" * Attr("type", "trait"),
 		typedef = type_ + FuncType + Trait, 
 		TypeOne = idName * SS * (":" * SL * Cg(typedef, "type"))^-1,
-		TypeList = TypeOne * (SS * "," * SL * TypeOne)^0,
-		IdDecl = (Cg(S".:", "scope") * SL)^-1 * idName * (SS * ":" * SL * Cg(typedef, "type"))^-1,
+		NamedTypeList = TypeOne * (SS * "," * SL * TypeOne)^0,
+		Typedef = typedef,
+		TypeList = Typedef + "(" * SL * Typedef * (SL * "," * SL * Typedef)^0 * SL * ")",
+		IdDecl = (Cg(CS".:", "scope") * SL)^-1 * idName * (SS * ":" * SL * Cg(typedef, "type"))^-1,
 		IdList = IdDecl * (SS * ',' * SL * IdDecl)^0,
-		Class = Cg(K"class" + K"trait", "type") * SL * idName * SL * 
-			Cg(Ct( (K"extends" * SL1 * id * SL)^0 ), "parent") * Cg(CompoundStatement, "stat"),
+		Class = Cg(CK"class" + CK"trait", "type") * SL * idName * SL * 
+			Cg(Ct( (K"extends" * SL1 * id * SL)^0 ), "parent") * SL * "{" * SL *Cg(Statement, "stat")^-1 * SL * "}",
 
-		Decl = Cg(K'val' + K'var', "const") * SL1 * Cg(IdList, "list") * SS * ('=' * SL * Cg(Expr, "init"))^-1,
+		Decl = Cg(CK'val' + CK'var', "const") * SL1 * Cg(IdList, "list") * SS * ('=' * SL * Cg(expr, "init"))^-1,
 
 		SimpleStatement = Cg(Decl, "stat") * Attr("type", "decl") + 
 			Cg(For, "stat") * Attr("type", "for") + Cg(While, "stat") * Attr("type","while") + Cg(Case, "stat") * Attr("type", "case") + 
-			Cg(TryCatch, "stat") * Attr("type", "try") + Cg(IfElse, "stat") * Attr("type", "if") + Cg(Return, "stat") * Attr("type", "return") + 
-			Cg(Class, "stat") * Attr("type", "class") + Cg(Expr/remove_level, "stat") * Attr("type", "expr"), 
-		CompoundStatement = P"{" * SL * (SS * statement * Separator)^0 * SS * statement^-1 * SS * "}",
+			Cg(TryCatch, "stat") * Attr("type", "try") + Cg(IfElse, "stat") * Attr("type", "if") + return_ + 
+			Cg(Class, "stat") * Attr("type", "class") + Cg(expr, "stat") * Attr("type", "expr"), 
+		CompoundStatement = P"{" * SL * (SS * Statement * Separator)^0 * SS * Statement^-1 * SS * "}",
 		empty = SS * separator * SS,
-		statement = empty + SimpleStatement + CompoundStatement,
+		Statement = empty * Attr("type", "empty") + Cg(SimpleStatement, "act") * Attr("type", "simple") + Cg(CompoundStatement, "act") * Attr("type", "compound"),
 		--Statement1 = SimpleStatement / "simple" + CompoundStatement /"compound",
-		--Block = shebang^-1 * SL * Ct(( statement * Separator * SS)^0 * SS * (statement^-1) * SS * Cp()) * P(1)^0, -- Number/tonumber * space
-		Block = shebang^-1 * SL * Ct(( statement * Separator * SS)^0 * SS * (statement^-1) * SS * Cp()) * P(1)^0, -- Number/tonumber * space
+		--Block = shebang^-1 * SL * Ct(( Statement * Separator * SS)^0 * SS * (Statement^-1) * SS * Cp()) * P(1)^0, -- Number/tonumber * space
+		Block = shebang^-1 * SL * Ct(( Statement * Separator * SS)^0 * SS * (Statement^-1) * SS * Cp()) * P(1)^0, -- Number/tonumber * space
 
 		-- at this point, it should collect all keywords
 		id = C(charset * charnum^0 - keywords),
