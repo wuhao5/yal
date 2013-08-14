@@ -129,7 +129,7 @@ local build_grammar = function()
 	local Separator = (SS * separator)^1
 	local SS1 = (space + Comment) ^ 1
 	local SL1 = (space + Comment + nl) ^ 1
-	local decimal = R("19") * _09^0
+	local decimal = R("19") * _09^0 + "0"
 	return P {
 		Block/remove_level,
 
@@ -146,17 +146,19 @@ local build_grammar = function()
 
 		--generator
 		guard = K"if" * SL * orExp,
-		Generator = Cg(IdList, "parameter") * SL * "<-" * SL * Cg(expr, "gen") * Cg(SS * guard, "guard")^-1,
+		Generator = Cg(IdList, "assign") * SL * "<-" * SL * Cg(expr, "gen") * Cg(SS * guard, "guard")^-1,
 
 		-- other literal and comprehension
 
 		-- partial lua style, "field" : value, ["field"] : value
-		TableField = (Cc"value" * String + P"[" * SL * Cc"expr" * Expr * SL * "]") * SL * ":" * SL * OrExp,
-		TableLit = P"{" * SL * Cg( Ct((TableField * SL * "," * SL)^0 * TableField^-1), "value") * SL * "}" * Attr("type", "table"),
+		TableField = Cg(String + P"[" * SL * expr * SL * "]", "key") * SL * ":" * SL * Cg(orExp, "value"),
+		TableLit = P"{" * SL * Cg( Ct((TableField * SL * "," * SL)^0 * TableField^-1), "values") * SL * "}" * Attr("type", "table"),
 		-- [x,y | x<-1 to 10; y<-1 to x]
-		ListComprehension = Cc"list" * P"[" * SL * ListExp * SL * (P"|" * SL * Generator * (SL * ';' * SL * Generator)^0 * SL)^-1 * ']',  
+		ListComprehension = "[" * SL * Cg(listExp, "input") * SL * 
+			Cg(P"|" * SL * Ct(Generator * (SL * ';' * SL * Generator)^0) * SL, "gen")^-1 * ']' * Attr("type", "list"), 
 		-- {k:func(v) | k<-1 to 10}
-		TableComprehension = Cc"tbCmp" * P"{" * SL * idName * SL * ":" * SL * OrExp * SL * P"|" * SL * Generator * (SL * ';' * SL * Generator)^0 * SL * '}',
+		TableComprehension = P"{" * SL * Cg(idName, "key") * SL * ":" * SL * Cg(orExp, "value") * SL * P"|" * SL * 
+			Cg(Ct(Generator * (SL * ';' * SL * Generator)^0), "gen") * SL * '}' * Attr("type", "table"),
 
 		FuncLit = P"(" * SL * Cg(IdList * SL, "parameter")^-1 * ")" * SL * "->" * SL * Cg(Statement, "body") * Attr("type", "func");
 
@@ -164,7 +166,8 @@ local build_grammar = function()
 		binOp = P"=" + "+" + "-" + "*" + "/" + "%" + K"and" + K"or" + "..",
 		relOp = C(P"<=" + P">=" + P"<" + P">" + P"~=" + P"=="),
 		assignOp = C(P"=" + P"-=" + P"+=" + P"*=" + P"/=" + P"%="),
-		RangeGen = Number * SS1 * "to" * SS1 * Number * (SS1 * "by" * SS1 * Number)^-1, -- range must be in the same line
+		-- range must be in the same line
+		RangeGen = Cg(Number, "start") * SS1 * "to" * SS1 * Cg(Number, "to") * (SS1 * "by" * SS1 * Cg(Number, "step"))^-1 * Attr("type", "range"), 
 
 		-- expression: assignment, relational, factoring, indexing and invoking
 		ListExp = listExp, OrExp = orExp, Expr = expr, -- table capture for intermediate expressions
@@ -180,7 +183,7 @@ local build_grammar = function()
 		unaryExp = Cg(Ct((unOp * SS) ^ 0)) * expoExp / function(op, left) return #op>0 and {op = op, left=left} or left end,	-- Unary stay in the same line
 		expoExp = Cf(postExp * Cg(SS * C"^" * SL * postExp) ^ 0, make_tree),
 		postExp = Cf(value * Cg(SS * Cc"index" * indexPostfix + Cc"call" * callPostfix) ^ 0, make_tree),
-		indexPostfix = '[' * SL * Cg(expr, "expr") * SL * ']' * Attr("op", ".") + Cg(CS'.:', "op") * SL * idName,
+		indexPostfix = Ct('[' * SL * Cg(expr, "expr") * SL * ']' * Attr("op", ".") + Cg(CS'.:', "op") * SL * idName),
 		callPostfix = SS * '(' * SL * expr^-1 * SL * ')' + SS1 * (-S"-+") * expr,
 		value = Boolean + Nil + String + RangeGen + Number + IdValue + 
 			FuncLit + ListComprehension + TableComprehension + TableLit + ("(" * SL * expr * SL * ")"),
